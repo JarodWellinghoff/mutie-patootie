@@ -7,8 +7,8 @@ Automatically disconnects users from voice channels after they've been muted for
 - Tracks server mute and self-mute status
 - Configurable timeout duration (default: 30 minutes)
 - TTS activity exemption (users sending TTS messages won't be disconnected)
-- Admin commands to check status and adjust settings
-- Periodic checks every 60 seconds
+- Admin slash commands to check status and adjust settings
+- Periodic checks (default every 1 second; configurable)
 
 ## Setup
 
@@ -34,16 +34,20 @@ pip install -r requirements.txt
 
 # Set environment variables
 export DISCORD_TOKEN="your_bot_token_here"
-export MUTE_TIMEOUT_MINUTES="30"
+export MUTE_TIMEOUT_MINUTES="30"           # optional; default 30
+export CHECK_INTERVAL_SECONDS="1"          # optional; default 1
+# Optional: set TEST_GUILD_ID for faster slash command sync during testing
+# export TEST_GUILD_ID="123456789012345678"
 
 # Run the bot
 python mute_monitor_bot.py
 ```
 
-## Bot Commands
+## Bot Commands (Slash)
 
-- `!set_timeout <minutes>` - Set mute timeout (admin only)
-- `!mute_status` - View currently muted users and durations (admin only)
+- `/set-timeout <minutes>` — Set mute timeout (admin only)
+- `/set-interval <seconds>` — Set check interval in seconds (admin only)
+- `/mute-status` — View currently tracked muted users (ephemeral)
 
 ## Deploy to Google Cloud Platform (Free Tier)
 
@@ -155,8 +159,10 @@ Cloud Run is designed for request-based services and may sleep when inactive. Fo
 
 ## Environment Variables
 
-- `DISCORD_TOKEN` - Your Discord bot token (required)
-- `MUTE_TIMEOUT_MINUTES` - Minutes before disconnecting muted users (default: 30)
+- `DISCORD_TOKEN` — Your Discord bot token (required)
+- `MUTE_TIMEOUT_MINUTES` — Minutes before disconnecting muted users (default: 30)
+- `CHECK_INTERVAL_SECONDS` — Seconds between checks (default: 1)
+- `TEST_GUILD_ID` — Guild ID to sync slash commands to for faster availability (optional)
 
 ## Monitoring & Maintenance
 

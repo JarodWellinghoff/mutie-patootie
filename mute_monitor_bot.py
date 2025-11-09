@@ -1,5 +1,6 @@
 import discord
 from discord.ext import commands, tasks
+from discord import app_commands
 from datetime import datetime, timedelta
 import os
 from collections import defaultdict
@@ -20,13 +21,29 @@ tts_activity = {}
 
 # Configuration
 MUTE_TIMEOUT_MINUTES = int(os.getenv("MUTE_TIMEOUT_MINUTES", "30"))
-CHECK_INTERVAL_SECONDS = 1
+# Allow overriding initial check interval via env, default to 1s
+CHECK_INTERVAL_SECONDS = int(os.getenv("CHECK_INTERVAL_SECONDS", "1"))
+
+# Optional: set TEST_GUILD_ID in env for faster slash command sync during testing
+TEST_GUILD_ID = os.getenv("TEST_GUILD_ID")
+TEST_GUILD = discord.Object(id=int(TEST_GUILD_ID)) if TEST_GUILD_ID else None
 
 
 @bot.event
 async def on_ready():
     print(f"{bot.user} is now running!")
     check_muted_users.start()
+    # Sync slash commands (guild-scoped if TEST_GUILD provided for faster availability)
+    try:
+        if TEST_GUILD:
+            bot.tree.copy_global_to(guild=TEST_GUILD)
+            synced = await bot.tree.sync(guild=TEST_GUILD)
+            print(f"Synced {len(synced)} guild commands to TEST_GUILD")
+        else:
+            synced = await bot.tree.sync()
+            print(f"Synced {len(synced)} global commands")
+    except Exception as e:
+        print(f"Failed to sync commands: {e}")
 
 
 @bot.event
@@ -60,8 +77,6 @@ async def on_message(message):
     if message.tts and message.author.voice:
         tts_activity[message.author.id] = datetime.now()
         print(f"{message.author.name} sent TTS message")
-
-    await bot.process_commands(message)
 
 
 @tasks.loop(seconds=CHECK_INTERVAL_SECONDS)
@@ -116,29 +131,55 @@ async def before_check():
     await bot.wait_until_ready()
 
 
-# Admin commands
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def set_timeout(ctx, minutes: int):
-    """Set the mute timeout in minutes"""
+# Slash commands
+
+
+@bot.tree.command(name="set-timeout", description="Set mute timeout in minutes")
+@app_commands.describe(minutes="Mute timeout in minutes")
+@app_commands.default_permissions(administrator=True)
+@app_commands.guild_only()
+async def set_timeout_slash(
+    interaction: discord.Interaction, minutes: app_commands.Range[int, 1, 720]
+):
     global MUTE_TIMEOUT_MINUTES
     MUTE_TIMEOUT_MINUTES = minutes
-    await ctx.send(f"Mute timeout set to {minutes} minutes")
+    await interaction.response.send_message(
+        f"Mute timeout set to {minutes} minutes.", ephemeral=True
+    )
 
 
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def mute_status(ctx):
-    """Show currently muted users and their durations"""
+@bot.tree.command(name="set-interval", description="Set check interval in seconds")
+@app_commands.describe(seconds="Loop interval in seconds")
+@app_commands.default_permissions(administrator=True)
+@app_commands.guild_only()
+async def set_interval_slash(
+    interaction: discord.Interaction, seconds: app_commands.Range[int, 1, 3600]
+):
+    global CHECK_INTERVAL_SECONDS
+    CHECK_INTERVAL_SECONDS = seconds
+    try:
+        # Adjust the running loop interval dynamically
+        check_muted_users.change_interval(seconds=CHECK_INTERVAL_SECONDS)
+        msg = f"Check interval set to {CHECK_INTERVAL_SECONDS} seconds."
+    except Exception as e:
+        msg = f"Failed to change loop interval: {e}"
+    await interaction.response.send_message(msg, ephemeral=True)
+
+
+@bot.tree.command(name="mute-status", description="Show currently tracked muted users")
+@app_commands.guild_only()
+async def mute_status_slash(interaction: discord.Interaction):
     if not mute_times:
-        await ctx.send("No users are currently being tracked as muted")
+        await interaction.response.send_message(
+            "No users are currently being tracked as muted.", ephemeral=True
+        )
         return
 
     now = datetime.now()
     status = "**Currently Muted Users:**\n"
     # Iterate over a snapshot to avoid concurrent modification issues
     for user_id, mute_start in list(mute_times.items()):
-        member = ctx.guild.get_member(user_id)
+        member = interaction.guild.get_member(user_id) if interaction.guild else None
         if member:
             duration = now - mute_start
             minutes = duration.total_seconds() / 60
@@ -149,7 +190,14 @@ async def mute_status(ctx):
             tts_indicator = " (TTS active)" if has_recent_tts else ""
             status += f"- {member.name}: {minutes:.1f} minutes{tts_indicator}\n"
 
-    await ctx.send(status)
+    # Defer if large; otherwise send ephemeral
+    if len(status) > 1800:
+        await interaction.response.send_message(
+            "Sending muted user list...", ephemeral=True
+        )
+        await interaction.followup.send(status, ephemeral=True)
+    else:
+        await interaction.response.send_message(status, ephemeral=True)
 
 
 if __name__ == "__main__":
