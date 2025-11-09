@@ -3,7 +3,9 @@ from discord.ext import commands, tasks
 from datetime import datetime, timedelta
 import os
 from collections import defaultdict
+from dotenv import load_dotenv
 
+load_dotenv()
 intents = discord.Intents.default()
 intents.message_content = True
 intents.guilds = True
@@ -14,11 +16,11 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 # Track mute start times: {user_id: datetime}
 mute_times = {}
 # Track TTS activity: {user_id: datetime of last TTS}
-tts_activity = defaultdict(lambda: None)
+tts_activity = {}
 
 # Configuration
 MUTE_TIMEOUT_MINUTES = int(os.getenv("MUTE_TIMEOUT_MINUTES", "30"))
-CHECK_INTERVAL_SECONDS = 60
+CHECK_INTERVAL_SECONDS = 1
 
 
 @bot.event
@@ -71,7 +73,8 @@ async def check_muted_users():
 
     users_to_remove = []
 
-    for user_id, mute_start in mute_times.items():
+    # Iterate over a snapshot to avoid "dictionary changed size during iteration"
+    for user_id, mute_start in list(mute_times.items()):
         # Check if user has recent TTS activity
         last_tts = tts_activity.get(user_id)
         if last_tts and (now - last_tts) < tts_grace_period:
@@ -79,11 +82,11 @@ async def check_muted_users():
 
         # Check if mute timeout exceeded
         mute_duration = now - mute_start
-        if mute_duration > timeout_threshold:
-            # Find the user in all guilds
-            for guild in bot.guilds:
-                member = guild.get_member(user_id)
-                if member and member.voice:
+        # Find the user in all guilds
+        for guild in bot.guilds:
+            member = guild.get_member(user_id)
+            if member and member.voice:
+                if mute_duration > timeout_threshold:
                     try:
                         await member.move_to(None)
                         print(
@@ -94,6 +97,11 @@ async def check_muted_users():
                         print(f"Missing permissions to disconnect {member.name}")
                     except Exception as e:
                         print(f"Error disconnecting {member.name}: {e}")
+                else:
+                    remaining = timeout_threshold - mute_duration
+                    print(
+                        f"{member.name} has {remaining.total_seconds()/60:.1f} minutes left before disconnect"
+                    )
 
     # Clean up disconnected users
     for user_id in users_to_remove:
@@ -128,14 +136,16 @@ async def mute_status(ctx):
 
     now = datetime.now()
     status = "**Currently Muted Users:**\n"
-    for user_id, mute_start in mute_times.items():
+    # Iterate over a snapshot to avoid concurrent modification issues
+    for user_id, mute_start in list(mute_times.items()):
         member = ctx.guild.get_member(user_id)
         if member:
             duration = now - mute_start
             minutes = duration.total_seconds() / 60
-            has_recent_tts = tts_activity.get(user_id) and (
-                now - tts_activity[user_id]
-            ) < timedelta(minutes=5)
+            last_tts = tts_activity.get(user_id)
+            has_recent_tts = last_tts is not None and (now - last_tts) < timedelta(
+                minutes=5
+            )
             tts_indicator = " (TTS active)" if has_recent_tts else ""
             status += f"- {member.name}: {minutes:.1f} minutes{tts_indicator}\n"
 
