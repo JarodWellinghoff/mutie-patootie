@@ -239,7 +239,9 @@ async def mute_status_slash(interaction: discord.Interaction):
         return
 
     now = datetime.now()
-    status = "**Currently Muted Users:**\n"
+    status = f"**Current Check Interval:** {CHECK_INTERVAL_SECONDS} seconds\n"
+    status += f"**Mute Timeout:** {MUTE_TIMEOUT_MINUTES} minutes\n\n"
+    status += "**Currently Muted Users:**\n"
     # Iterate over a snapshot to avoid concurrent modification issues
     for user_id, mute_start in list(mute_times.items()):
         member = interaction.guild.get_member(user_id) if interaction.guild else None
