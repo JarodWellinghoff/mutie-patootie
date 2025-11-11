@@ -40,7 +40,7 @@ async def start_health_app():
     app.router.add_get("/health", _health)
     runner = web.AppRunner(app)
     await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", int(os.getenv("PORT", "8080")))
+    site = web.TCPSite(runner, "0.0.0.0", int(os.getenv("PORT", "8000")))
     await site.start()
 
 
