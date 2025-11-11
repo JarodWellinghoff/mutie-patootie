@@ -32,7 +32,7 @@ TEST_GUILD = discord.Object(id=int(TEST_GUILD_ID)) if TEST_GUILD_ID else None
 
 
 async def _health(request):
-    print(f"🏥 Health check from {request.remote}")
+    print(f"Health check from {request.remote}")
     return web.Response(text="ok")
 
 
@@ -47,8 +47,8 @@ async def start_health_app():
 
 @bot.event
 async def on_ready():
-    print(f"✅ {bot.user} is now running!")
-    print(f"📊 Connected to {len(bot.guilds)} guild(s)")
+    print(f"{bot.user} is now running!")
+    print(f"Connected to {len(bot.guilds)} guild(s)")
     for guild in bot.guilds:
         print(f"   - {guild.name} (ID: {guild.id})")
 
