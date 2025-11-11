@@ -232,16 +232,16 @@ async def set_interval_slash(
 async def mute_status_slash(interaction: discord.Interaction):
     logger.info(f"📋 {interaction.user.name} requested mute status")
 
-    if not mute_times:
-        await interaction.response.send_message(
-            "No users are currently being tracked as muted.", ephemeral=True
-        )
-        return
-
-    now = datetime.now()
     status = f"**Current Check Interval:** {CHECK_INTERVAL_SECONDS} seconds\n"
     status += f"**Mute Timeout:** {MUTE_TIMEOUT_MINUTES} minutes\n\n"
     status += "**Currently Muted Users:**\n"
+
+    if not mute_times:
+        status += "No users are currently being tracked as muted\n"
+        await interaction.response.send_message(status, ephemeral=True)
+        return
+
+    now = datetime.now()
     # Iterate over a snapshot to avoid concurrent modification issues
     for user_id, mute_start in list(mute_times.items()):
         member = interaction.guild.get_member(user_id) if interaction.guild else None
