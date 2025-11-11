@@ -40,7 +40,7 @@ export CHECK_INTERVAL_SECONDS="1"          # optional; default 1
 # export TEST_GUILD_ID="123456789012345678"
 
 # Run the bot
-python mute_monitor_bot.py
+python bot.py
 ```
 
 ## Bot Commands (Slash)
@@ -108,7 +108,7 @@ cd discord-mute-bot
 
 # Option B: Create files manually
 mkdir discord-bot && cd discord-bot
-nano mute_monitor_bot.py  # Paste the bot code
+nano bot.py  # Paste the bot code
 nano requirements.txt     # Paste requirements
 nano Dockerfile          # Paste Dockerfile
 
