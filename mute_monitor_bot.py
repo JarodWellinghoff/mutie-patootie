@@ -215,8 +215,19 @@ async def mute_status_slash(interaction: discord.Interaction):
         await interaction.response.send_message(status, ephemeral=True)
 
 
-if __name__ == "__main__":
+async def main():
+    """Run both the health server and Discord bot"""
     TOKEN = os.getenv("DISCORD_TOKEN")
     if not TOKEN:
         raise ValueError("DISCORD_TOKEN environment variable not set")
-    bot.run(TOKEN)
+
+    # Start health check server for Koyeb
+    await start_health_app()
+    print(f"Health server started on port {os.getenv('PORT', '8000')}")
+
+    # Start Discord bot
+    await bot.start(TOKEN)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
