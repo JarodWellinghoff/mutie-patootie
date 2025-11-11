@@ -31,7 +31,8 @@ TEST_GUILD_ID = os.getenv("TEST_GUILD_ID")
 TEST_GUILD = discord.Object(id=int(TEST_GUILD_ID)) if TEST_GUILD_ID else None
 
 
-async def _health(_):
+async def _health(request):
+    print(f"🏥 Health check from {request.remote}")
     return web.Response(text="ok")
 
 
@@ -46,19 +47,27 @@ async def start_health_app():
 
 @bot.event
 async def on_ready():
-    print(f"{bot.user} is now running!")
+    print(f"✅ {bot.user} is now running!")
+    print(f"📊 Connected to {len(bot.guilds)} guild(s)")
+    for guild in bot.guilds:
+        print(f"   - {guild.name} (ID: {guild.id})")
+
     check_muted_users.start()
+    print(
+        f"⏰ Started mute checker (interval: {CHECK_INTERVAL_SECONDS}s, timeout: {MUTE_TIMEOUT_MINUTES}min)"
+    )
+
     # Sync slash commands (guild-scoped if TEST_GUILD provided for faster availability)
     try:
         if TEST_GUILD:
             bot.tree.copy_global_to(guild=TEST_GUILD)
             synced = await bot.tree.sync(guild=TEST_GUILD)
-            print(f"Synced {len(synced)} guild commands to TEST_GUILD")
+            print(f"✅ Synced {len(synced)} guild commands to TEST_GUILD")
         else:
             synced = await bot.tree.sync()
-            print(f"Synced {len(synced)} global commands")
+            print(f"✅ Synced {len(synced)} global commands")
     except Exception as e:
-        print(f"Failed to sync commands: {e}")
+        print(f"❌ Failed to sync commands: {e}")
 
 
 @bot.event
@@ -70,18 +79,28 @@ async def on_voice_state_update(member, before, after):
         # User is now muted (server mute or self mute)
         if (after.mute or after.self_mute) and not (before.mute or before.self_mute):
             mute_times[member.id] = datetime.now()
-            print(f"{member.name} muted at {mute_times[member.id]}")
+            mute_type = "server-muted" if after.mute else "self-muted"
+            print(
+                f"🔇 {member.name} {mute_type} in {after.channel.name} at {datetime.now().strftime('%H:%M:%S')}"
+            )
 
         # User is now unmuted
         elif not (after.mute or after.self_mute) and (before.mute or before.self_mute):
             if member.id in mute_times:
+                duration = datetime.now() - mute_times[member.id]
                 del mute_times[member.id]
-            print(f"{member.name} unmuted")
+                print(
+                    f"🔊 {member.name} unmuted after {duration.total_seconds()/60:.1f} minutes"
+                )
 
     # User left voice channel
     elif before.channel and not after.channel:
         if member.id in mute_times:
+            duration = datetime.now() - mute_times[member.id]
             del mute_times[member.id]
+            print(
+                f"👋 {member.name} left voice (was muted for {duration.total_seconds()/60:.1f} minutes)"
+            )
         if member.id in tts_activity:
             del tts_activity[member.id]
 
@@ -91,16 +110,20 @@ async def on_message(message):
     """Track TTS messages to exempt users from auto-disconnect"""
     if message.tts and message.author.voice:
         tts_activity[message.author.id] = datetime.now()
-        print(f"{message.author.name} sent TTS message")
+        print(f"📢 {message.author.name} sent TTS message in #{message.channel.name}")
 
 
 @tasks.loop(seconds=CHECK_INTERVAL_SECONDS)
 async def check_muted_users():
     """Periodically check and disconnect users who have been muted too long"""
+    if not mute_times:
+        return  # Skip if no muted users
+
     now = datetime.now()
     timeout_threshold = timedelta(minutes=MUTE_TIMEOUT_MINUTES)
     tts_grace_period = timedelta(minutes=5)  # Consider recent TTS activity
 
+    print(f"🔍 Checking {len(mute_times)} muted user(s) at {now.strftime('%H:%M:%S')}")
     users_to_remove = []
 
     # Iterate over a snapshot to avoid "dictionary changed size during iteration"
@@ -120,18 +143,13 @@ async def check_muted_users():
                     try:
                         await member.move_to(None)
                         print(
-                            f"Disconnected {member.name} after {mute_duration.total_seconds()/60:.1f} minutes muted"
+                            f"⏰ Auto-disconnected {member.name} after {mute_duration.total_seconds()/60:.1f} minutes muted"
                         )
                         users_to_remove.append(user_id)
                     except discord.Forbidden:
-                        print(f"Missing permissions to disconnect {member.name}")
+                        print(f"❌ Missing permissions to disconnect {member.name}")
                     except Exception as e:
-                        print(f"Error disconnecting {member.name}: {e}")
-                else:
-                    remaining = timeout_threshold - mute_duration
-                    print(
-                        f"{member.name} has {remaining.total_seconds()/60:.1f} minutes left before disconnect"
-                    )
+                        print(f"❌ Error disconnecting {member.name}: {e}")
 
     # Clean up disconnected users
     for user_id in users_to_remove:
@@ -157,7 +175,11 @@ async def set_timeout_slash(
     interaction: discord.Interaction, minutes: app_commands.Range[int, 1, 720]
 ):
     global MUTE_TIMEOUT_MINUTES
+    old_timeout = MUTE_TIMEOUT_MINUTES
     MUTE_TIMEOUT_MINUTES = minutes
+    print(
+        f"⚙️ {interaction.user.name} changed timeout: {old_timeout} → {minutes} minutes"
+    )
     await interaction.response.send_message(
         f"Mute timeout set to {minutes} minutes.", ephemeral=True
     )
@@ -171,12 +193,17 @@ async def set_interval_slash(
     interaction: discord.Interaction, seconds: app_commands.Range[int, 1, 3600]
 ):
     global CHECK_INTERVAL_SECONDS
+    old_interval = CHECK_INTERVAL_SECONDS
     CHECK_INTERVAL_SECONDS = seconds
     try:
         # Adjust the running loop interval dynamically
         check_muted_users.change_interval(seconds=CHECK_INTERVAL_SECONDS)
+        print(
+            f"⚙️ {interaction.user.name} changed check interval: {old_interval} → {seconds} seconds"
+        )
         msg = f"Check interval set to {CHECK_INTERVAL_SECONDS} seconds."
     except Exception as e:
+        print(f"❌ Failed to change loop interval: {e}")
         msg = f"Failed to change loop interval: {e}"
     await interaction.response.send_message(msg, ephemeral=True)
 
@@ -184,6 +211,8 @@ async def set_interval_slash(
 @bot.tree.command(name="mute-status", description="Show currently tracked muted users")
 @app_commands.guild_only()
 async def mute_status_slash(interaction: discord.Interaction):
+    print(f"📋 {interaction.user.name} requested mute status")
+
     if not mute_times:
         await interaction.response.send_message(
             "No users are currently being tracked as muted.", ephemeral=True
@@ -217,17 +246,29 @@ async def mute_status_slash(interaction: discord.Interaction):
 
 async def main():
     """Run both the health server and Discord bot"""
+    print("🚀 Starting Discord Mute Monitor Bot...")
+
     TOKEN = os.getenv("DISCORD_TOKEN")
     if not TOKEN:
+        print("❌ ERROR: DISCORD_TOKEN environment variable not set")
         raise ValueError("DISCORD_TOKEN environment variable not set")
+
+    print(f"📝 Configuration:")
+    print(f"   - Mute timeout: {MUTE_TIMEOUT_MINUTES} minutes")
+    print(f"   - Check interval: {CHECK_INTERVAL_SECONDS} seconds")
+    print(f"   - Health port: {os.getenv('PORT', '8000')}")
 
     # Start health check server for Koyeb
     await start_health_app()
-    print(f"Health server started on port {os.getenv('PORT', '8000')}")
+    print(f"✅ Health server started on port {os.getenv('PORT', '8000')}")
 
     # Start Discord bot
+    print("🤖 Connecting to Discord...")
     await bot.start(TOKEN)
 
 
 if __name__ == "__main__":
+    print("=" * 50)
+    print("Discord Mute Monitor Bot v1.0")
+    print("=" * 50)
     asyncio.run(main())
