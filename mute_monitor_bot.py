@@ -5,6 +5,8 @@ from datetime import datetime, timedelta
 import os
 from collections import defaultdict
 from dotenv import load_dotenv
+import asyncio
+from aiohttp import web
 
 load_dotenv()
 intents = discord.Intents.default()
@@ -27,6 +29,19 @@ CHECK_INTERVAL_SECONDS = int(os.getenv("CHECK_INTERVAL_SECONDS", "1"))
 # Optional: set TEST_GUILD_ID in env for faster slash command sync during testing
 TEST_GUILD_ID = os.getenv("TEST_GUILD_ID")
 TEST_GUILD = discord.Object(id=int(TEST_GUILD_ID)) if TEST_GUILD_ID else None
+
+
+async def _health(_):
+    return web.Response(text="ok")
+
+
+async def start_health_app():
+    app = web.Application()
+    app.router.add_get("/health", _health)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", int(os.getenv("PORT", "8080")))
+    await site.start()
 
 
 @bot.event
